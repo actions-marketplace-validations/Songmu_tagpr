@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.15.0](https://github.com/Songmu/tagpr/compare/v1.14.0...v1.15.0) - 2026-02-01
+- feat: allow `tagpr.calendarVersioning` to accept format string directly by @k1LoW in https://github.com/Songmu/tagpr/pull/295
+
+## [v1.14.0](https://github.com/Songmu/tagpr/compare/v1.13.0...v1.14.0) - 2026-01-29
+- feat: scoped release configuration by @wreulicke in https://github.com/Songmu/tagpr/pull/291
+- [fix] care nil ReleaseYAML by @Songmu in https://github.com/Songmu/tagpr/pull/293
+
+## [v1.13.0](https://github.com/Songmu/tagpr/compare/v1.12.1...v1.13.0) - 2026-01-29
+- Add Calendar Versioning (CalVer) support by @fujiwara in https://github.com/Songmu/tagpr/pull/288
+- build(deps): bump actions/checkout from 6.0.1 to 6.0.2 by @dependabot[bot] in https://github.com/Songmu/tagpr/pull/289
+
+## [v1.12.1](https://github.com/Songmu/tagpr/compare/v1.12.0...v1.12.1) - 2026-01-21
+- fix: pass changelog file path to gh2changelog by @wreulicke in https://github.com/Songmu/tagpr/pull/286
+
+## [v1.12.0](https://github.com/Songmu/tagpr/compare/v1.11.1...v1.12.0) - 2026-01-21
+- feat: add changelogFile for monorepo support by @wreulicke in https://github.com/Songmu/tagpr/pull/283
+- build(deps): bump actions/setup-go from 6.1.0 to 6.2.0 by @dependabot[bot] in https://github.com/Songmu/tagpr/pull/281
+
 ## [v1.11.1](https://github.com/Songmu/tagpr/compare/v1.11.0...v1.11.1) - 2026-01-13
 - fix: add check for both release.yml and release.yaml files by @nnnkkk7 in https://github.com/Songmu/tagpr/pull/275
 - feat: add base_tag output for GitHub Actions by @178inaba in https://github.com/Songmu/tagpr/pull/277

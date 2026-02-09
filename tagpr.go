@@ -20,7 +20,7 @@ import (
 	"github.com/Songmu/gh2changelog"
 	"github.com/Songmu/gitconfig"
 	"github.com/Songmu/gitsemvers"
-	"github.com/google/go-github/v74/github"
+	"github.com/google/go-github/v82/github"
 )
 
 const (
@@ -124,6 +124,21 @@ func (tp *tagpr) getNextLabels(ctx context.Context, mergedFeatureHeadShas []stri
 	return nextLabels, nil
 }
 
+func (tp *tagpr) initializeReleaseYaml(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(`changelog:
+  exclude:
+    labels:
+      - tagpr
+`), 0644); err != nil {
+		return err
+	}
+	_, _, _ = tp.c.Git("add", "-f", path)
+	return nil
+}
+
 func newTagPR(ctx context.Context, c *commander) (*tagpr, error) {
 	tp := &tagpr{c: c, gitPath: c.gitPath, out: c.outStream}
 
@@ -224,6 +239,9 @@ func (tp *tagpr) Run(ctx context.Context) error {
 	} else {
 		currVer.vPrefix = *tp.cfg.vPrefix
 	}
+
+	currVer.asCalendarVersion = tp.cfg.CalendarVersioning()
+	currVer.calverFormat = tp.cfg.CalendarVersioningFormat()
 
 	releaseBranch := tp.cfg.ReleaseBranch()
 	if releaseBranch == "" {
@@ -357,21 +375,20 @@ func (tp *tagpr) Run(ctx context.Context) error {
 		tp.Exec(prog, currVer, nextVer)
 	}
 
-	const releaseYml = ".github/release.yml"
-	const releaseYaml = ".github/release.yaml"
-	// TODO: It would be nice to be able to add an exclude setting even if release.yml already exists.
-	if !exists(releaseYml) && !exists(releaseYaml) {
-		if err := os.MkdirAll(filepath.Dir(releaseYml), 0755); err != nil {
+	releaseYaml := tp.cfg.ReleaseYAMLPath()
+	if releaseYaml != "" && !exists(releaseYaml) {
+		if err := tp.initializeReleaseYaml(releaseYaml); err != nil {
 			return err
 		}
-		if err := os.WriteFile(releaseYml, []byte(`changelog:
-  exclude:
-    labels:
-      - tagpr
-`), 0644); err != nil {
-			return err
+	}
+	if releaseYaml == "" {
+		const defaultReleaseYml = ".github/release.yml"
+		const defaultReleaseYaml = ".github/release.yaml"
+		if !exists(defaultReleaseYml) && !exists(defaultReleaseYaml) {
+			if err := tp.initializeReleaseYaml(defaultReleaseYml); err != nil {
+				return err
+			}
 		}
-		tp.c.Git("add", "-f", releaseYml)
 	}
 
 	// Detect modified files and create a new tree object
@@ -434,7 +451,7 @@ func (tp *tagpr) Run(ctx context.Context) error {
 	parent.Commit.SHA = parent.SHA
 
 	// Create a new commit
-	commit := &github.Commit{
+	commit := github.Commit{
 		Message: github.Ptr(commitMessage),
 		Tree:    parent.Commit.Tree,
 		Parents: []*github.Commit{parent.Commit},
@@ -483,12 +500,14 @@ func (tp *tagpr) Run(ctx context.Context) error {
 				showGHError(err, resp)
 				return err
 			}
+
+			tempRef := "refs/heads/tagpr-temp"
 			// Create a temporary reference
-			tempRef := &github.Reference{
-				Ref:    github.Ptr("refs/heads/tagpr-temp"),
-				Object: &github.GitObject{SHA: newCommit.SHA},
+			createRef := github.CreateRef{
+				Ref: tempRef,
+				SHA: *newCommit.SHA,
 			}
-			tempRef, resp, err = tp.gh.Git.CreateRef(ctx, tp.owner, tp.repo, tempRef)
+			ref, resp, err = tp.gh.Git.CreateRef(ctx, tp.owner, tp.repo, createRef)
 			if err != nil {
 				showGHError(err, resp)
 				return err
@@ -506,7 +525,7 @@ func (tp *tagpr) Run(ctx context.Context) error {
 				}
 
 				// Create a new commit
-				commit := &github.Commit{
+				commit := github.Commit{
 					Message: github.Ptr("cherry-pick: " + commitish),
 					Tree:    newCommit.Tree,
 					Parents: cherryPickCommit.Parents,
@@ -518,8 +537,11 @@ func (tp *tagpr) Run(ctx context.Context) error {
 				}
 
 				// Update temporary reference
-				tempRef.Object.SHA = tempCommit.SHA
-				_, resp, err = tp.gh.Git.UpdateRef(ctx, tp.owner, tp.repo, tempRef, true)
+				updateRef := github.UpdateRef{
+					SHA:   *tempCommit.SHA,
+					Force: github.Ptr(true),
+				}
+				_, resp, err = tp.gh.Git.UpdateRef(ctx, tp.owner, tp.repo, tempRef, updateRef)
 				if err != nil {
 					showGHError(err, resp)
 					return err
@@ -544,7 +566,7 @@ func (tp *tagpr) Run(ctx context.Context) error {
 				// Create a new commit
 				// The Author is not set because setting the same Author as the original commit makes it
 				// difficult to create a Verified Commit.
-				commit = &github.Commit{
+				commit = github.Commit{
 					Message: cherryPickCommit.Commit.Message,
 					Tree:    mergeCommit.Commit.Tree,
 					Parents: []*github.Commit{newCommit},
@@ -556,8 +578,11 @@ func (tp *tagpr) Run(ctx context.Context) error {
 				}
 
 				// Update temporary reference
-				tempRef.Object.SHA = newCommit.SHA
-				_, resp, err = tp.gh.Git.UpdateRef(ctx, tp.owner, tp.repo, tempRef, true)
+				updateRef = github.UpdateRef{
+					SHA:   *newCommit.SHA,
+					Force: github.Ptr(true),
+				}
+				_, resp, err = tp.gh.Git.UpdateRef(ctx, tp.owner, tp.repo, tempRef, updateRef)
 				if err != nil {
 					showGHError(err, resp)
 					return err
@@ -601,12 +626,17 @@ func (tp *tagpr) Run(ctx context.Context) error {
 		}
 	}
 
-	gch, err := gh2changelog.New(ctx,
+	opts := []gh2changelog.Option{
 		gh2changelog.GitPath(tp.gitPath),
 		gh2changelog.SetOutputs(tp.c.outStream, tp.c.errStream),
 		gh2changelog.GitHubClient(tp.gh),
 		gh2changelog.TagPrefix(tp.normalizedTagPrefix),
-	)
+		gh2changelog.ChangelogMdPath(tp.cfg.ChangelogFile()),
+	}
+	if tp.cfg.ReleaseYAMLPath() != "" {
+		opts = append(opts, gh2changelog.ReleaseYamlPath(tp.cfg.ReleaseYAMLPath()))
+	}
+	gch, err := gh2changelog.New(ctx, opts...)
 	if err != nil {
 		return err
 	}
@@ -618,7 +648,7 @@ func (tp *tagpr) Run(ctx context.Context) error {
 	}
 
 	if tp.cfg.changelog == nil || *tp.cfg.changelog {
-		changelogMd := "CHANGELOG.md"
+		changelogMd := tp.cfg.ChangelogFile()
 		if !exists(changelogMd) {
 			logs, _, err := gch.Changelogs(ctx, 20)
 			if err != nil {
@@ -649,7 +679,7 @@ func (tp *tagpr) Run(ctx context.Context) error {
 			return err
 		}
 		// Create a new commit
-		commit = &github.Commit{
+		commit = github.Commit{
 			Message: github.Ptr(changelogMessage),
 			Tree:    tree,
 			Parents: []*github.Commit{newCommit},
@@ -662,25 +692,28 @@ func (tp *tagpr) Run(ctx context.Context) error {
 	}
 
 	// Create or Get remote rcBranch reference
-	rcBranchRef, resp, err := tp.gh.Git.GetRef(ctx, tp.owner, tp.repo, "refs/heads/"+rcBranch)
+	rcBranchRef := "refs/heads/" + rcBranch
+	_, resp, err = tp.gh.Git.GetRef(ctx, tp.owner, tp.repo, rcBranchRef)
 	if err != nil {
 		if resp.StatusCode != 404 {
 			showGHError(err, resp)
 			return err
 		}
-		newRef := &github.Reference{
-			Ref:    github.Ptr("refs/heads/" + rcBranch),
-			Object: ref.Object,
+		createNewRef := github.CreateRef{
+			Ref: "refs/heads/" + rcBranch,
+			SHA: *ref.Object.SHA,
 		}
-		rcBranchRef, resp, err = tp.gh.Git.CreateRef(ctx, tp.owner, tp.repo, newRef)
+		_, resp, err = tp.gh.Git.CreateRef(ctx, tp.owner, tp.repo, createNewRef)
 		if err != nil {
 			showGHError(err, resp)
 			return err
 		}
 	}
-	// Force update the rcBranch reference
-	rcBranchRef.Object.SHA = newCommit.SHA
-	_, resp, err = tp.gh.Git.UpdateRef(ctx, tp.owner, tp.repo, rcBranchRef, true)
+	updateRef := github.UpdateRef{
+		SHA:   *newCommit.SHA,
+		Force: github.Ptr(true),
+	}
+	_, resp, err = tp.gh.Git.UpdateRef(ctx, tp.owner, tp.repo, rcBranchRef, updateRef)
 	if err != nil {
 		showGHError(err, resp)
 		return err

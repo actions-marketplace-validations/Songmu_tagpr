@@ -84,11 +84,27 @@ In addition, release items will be made into pull requests, allowing for visuali
 ## Versioning Rules
 How tagpr proposes the next version number and how to adjust it.
 
-###  How to determine the next version number of candidate
-When creating a pull request by tagpr,  the next version number candidate is determined in the following way.
+### Semantic Versioning (Default)
 
-- Conventional Labels: If the merged pull requests for the next release have labels named "major" or "minor," the version is determined accordingly (of course, major has priority).
-- If no conventional labels are found, the patch version is incremented.
+####  How to determine the next version number of candidate
+When creating or updating the release PR, tagpr computes the next version in the following steps.
+
+1. Find the latest semver tag (respecting `tagpr.tagPrefix`). If no tag exists yet, tagpr assumes the current version is `v0.0.0` and compares from the first commit.
+2. Inspect merged PRs since the last release. If any of those PRs have labels listed in `tagpr.majorLabels` or `tagpr.minorLabels` (defaults: `major`, `minor`), tagpr adds `tagpr:major` or `tagpr:minor` to the release PR automatically.
+3. Decide the next version from labels on the release PR: `tagpr:major` or `tagpr/major` => major bump, `tagpr:minor` or `tagpr/minor` => minor bump, otherwise patch bump. If both major and minor labels are present, major wins.
+4. When calendar versioning is enabled, labels are ignored and the version is date-based.
+
+#### Label behavior and conventions
+tagpr uses labels in two layers: merged PRs since the last release, and the release PR itself.
+
+- tagpr always adds the label `tagpr` to its own release PR so it can recognize it later.
+- You can change which labels on merged PRs map to major/minor by configuring `tagpr.majorLabels` and `tagpr.minorLabels` (or their environment variable equivalents).
+- You can force a major or minor bump by adding `tagpr:major` or `tagpr:minor` to the release PR.
+
+### Calendar Versioning (Optional)
+When `tagpr.calendarVersioning` is set to `true` or a format string, tagpr uses date-based versioning.
+Labels are ignored, and versions are determined by the release date.
+See [tagpr.calendarVersioning](#tagprcalendarversioning-optional) for details.
 
 ### How to adjust the next version by yourself
 You can adjust the next version number suggested by tagpr directly on the pull request created by tagpr.
@@ -142,10 +158,10 @@ GitHub Release creation behavior after tagging `[true, draft, false]`
 If this value is not set, the release is to be created.
 
 ### tagpr.majorLabels (Optional)
-Label of major update targets. Default is [major]
+Label(s) of major update targets. Comma-separated. Default is `major`.
 
 ### tagpr.minorLabels (Optional)
-Label of minor update targets. Default is [minor]
+Label(s) of minor update targets. Comma-separated. Default is `minor`.
 
 ### tagpr.commitPrefix (Optional)
 Prefix of commit message. Default is "[tagpr]"
@@ -153,6 +169,30 @@ Prefix of commit message. Default is "[tagpr]"
 ### tagpr.tagPrefix (Optional)
 Tag prefix for monorepo support (e.g., `tools` produces tags like `tools/v1.2.3`).
 This allows managing multiple modules with independent versioning in a single repository.
+
+### tagpr.changelogFile (Optional)
+Path to the changelog file. Default is `CHANGELOG.md`.
+
+### tagpr.releaseYAMLPath (Optional)
+Path to the GitHub release notes config file used by `gh2changelog`.
+If not set, tagpr creates `.github/release.yml` on first run if neither `.github/release.yml` nor `.github/release.yaml` exists.
+
+### tagpr.calendarVersioning (Optional)
+Use Calendar Versioning (CalVer) instead of Semantic Versioning.
+Set to `true` to use the default format (`YYYY.MM0D.MICRO`), or specify a custom format string directly.
+Labels for major/minor are ignored when this option is enabled.
+
+Available format tokens (see https://calver.org):
+- Year: `YYYY` (4-digit), `YY` (2-digit), `0Y` (zero-padded 2-digit)
+- Month: `MM` (no padding), `0M` (zero-padded)
+- Week: `WW` (no padding), `0W` (zero-padded)
+- Day: `DD` (no padding), `0D` (zero-padded)
+- Micro: `MICRO` (auto-incrementing patch number for same date)
+
+Examples:
+- `true` or `"YYYY.MM0D.MICRO"` → `v2026.1203.0` (Dec 3rd, 2026)
+- `"YYYY.0M.MICRO"` → `v2026.01.0`
+- `"YY.0M0D.MICRO"` → `v26.0123.0`
 
 ## GitHub Enterprise
 If you are using GitHub Enterprise, use `GH_ENTERPRISE_TOKEN` instead of `GITHUB_TOKEN`.
@@ -168,6 +208,12 @@ If you are using GitHub Enterprise, use `GH_ENTERPRISE_TOKEN` instead of `GITHUB
 ### config (Optional)
 A path to the tagpr configuration file.
 If not specified, it will be ".tagpr" in the repository root.
+
+## Environment variables
+When running `tagpr.command` or `tagpr.postVersionCommand`, tagpr exports the following environment variables:
+
+- `TAGPR_CURRENT_VERSION`: the current version tag (e.g., `v1.2.3`)
+- `TAGPR_NEXT_VERSION`: the next version tag (e.g., `v1.3.0`)
 
 ## Outputs for GitHub Actions
 

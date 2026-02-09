@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/google/go-github/v74/github"
+	"github.com/google/go-github/v82/github"
 )
 
 func (tp *tagpr) latestPullRequest(ctx context.Context) (*github.PullRequest, error) {
@@ -83,9 +83,10 @@ func (tp *tagpr) tagRelease(ctx context.Context, pr *github.PullRequest, currVer
 	}
 	releases, resp, err := tp.gh.Repositories.GenerateReleaseNotes(
 		ctx, tp.owner, tp.repo, &github.GenerateNotesOptions{
-			TagName:         fullNextTag,
-			PreviousTagName: previousTag,
-			TargetCommitish: &targetCommitish,
+			TagName:               fullNextTag,
+			PreviousTagName:       previousTag,
+			TargetCommitish:       &targetCommitish,
+			ConfigurationFilePath: github.Ptr(tp.cfg.ReleaseYAMLPath()),
 		})
 	if err != nil {
 		showGHError(err, resp)
